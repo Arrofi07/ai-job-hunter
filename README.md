@@ -29,27 +29,28 @@ Recorded so we don't relitigate these later.
 | 4 | Cover letter template: **must be `.docx`**, not PDF — pending upload | 2026-07-08 |
 | 5 | MCP: **`github/github-mcp-server`** (official, read-only mode) + **Google's official remote Google Drive MCP server** | 2026-07-08 |
 | 6 | Dev env: existing `uv`-managed project on your machine; I scaffold files here, you place them in your repo | 2026-07-08 |
+| 7 | LLM routing: Gemini for nuanced tasks (matching, cover letters), Groq for structured/cheap tasks, with automatic fallback to **Ollama** (local) on rate limits, plus a manual `LLM_FORCE_PROVIDER` override for extended outages | 2026-07-08 |
+| 8 | Cover letter template confirmed as: static sender block + static closing, template-substituted recipient/date/subject, LLM-generated body (paragraphs 11–16 only). Google Docs export quirk: non-round margins, 0 bottom margin — tolerate, don't "fix" | 2026-07-08 |
 
 ---
 
 ## Slice 0 — Project scaffolding & LLM provider layer
 **Goal:** A project skeleton that runs, with config/env handling and a provider-agnostic LLM client
-that can call Gemini or Groq interchangeably.
+that can call Gemini, Groq, or Ollama interchangeably.
+
+**Status: code written and unit-tested in sandbox. Awaiting your confirmation after running `SETUP.md` steps 1–7 with real API keys.**
 
 **Definition of Done**
-- [ ] Repo layout in place (`app/`, `tests/`, `pyproject.toml` deps added via `uv add`)
-- [ ] `.env.example` documenting every required secret (no real secrets committed)
-- [ ] `LLMClient` interface with `Gemini` and `Groq` implementations, selectable via config
-- [ ] One smoke test: send a trivial prompt to each configured provider, assert non-empty response
-- [ ] `docker-compose.yml` for local Postgres + Qdrant
+- [x] `app/config.py`, `app/llm/` scaffolded — task-based routing (nuanced→Gemini, structured→Groq)
+      with automatic Ollama fallback on rate limits, and a manual force-override for extended outages
+- [x] `.env.example` documenting every required secret (no real secrets committed)
+- [x] `LLMClient` interface with `Gemini`, `Groq`, `Ollama` implementations, selectable via config
+- [x] Routing/fallback logic unit-tested (5 passing, mocked providers — verified in sandbox)
+- [x] Live smoke tests written but skipped (need your real API keys — can't reach Gemini/Groq from this sandbox)
+- [x] `docker-compose.yml` for local Postgres + Qdrant (valid YAML, verified)
+- [ ] **You:** merge into your `uv` project per `SETUP.md`, run the live smoke tests once, confirm
 
 **Depends on:** nothing
-
-**Open questions**
-- Do you want Gemini as primary (cheap/good context) and Groq as a fast fallback, or split by task
-  (e.g. Groq for quick matching, Gemini for longer cover-letter generation)? I'd default to:
-  **Gemini for anything needing large context or nuance (matching, cover letters), Groq for
-  cheap/fast structured tasks (extraction, classification)** — flag if you'd rather split differently.
 
 ---
 
@@ -126,8 +127,31 @@ that can call Gemini or Groq interchangeably.
 ## Slice 6 — Cover Letter Generation (FR6)
 **Goal:** Fill your real `.docx` template's body with LLM-generated, personalized content.
 
+**Template analysis (done 2026-07-08, from `Template_Cover_Letter.docx`):**
+Paragraph-level breakdown of the template, everything uses the `Normal` style
+(no custom heading styles), font inherited from theme (Calibri):
+
+| Paragraphs | Content | Handling |
+|---|---|---|
+| 0–3 | Sender name/address/phone/email | Static, never touched |
+| 4–6 | Recipient company/dept/location | Template substitution (job metadata) |
+| 7 | Date | Auto-generated (today's date) |
+| 8–9 | Subject line (role title + Req ID), bold | Template substitution |
+| 10 | Salutation ("Dear Hiring Team,") | Static default |
+| 11–16 | Body (6 paragraphs in the example) | **LLM-generated — the only part FR6 asks the model to write** |
+| 17–18 | Closing + signature name | Static, never touched |
+
+Open implementation question for when we build this: the LLM won't always produce
+exactly 6 body paragraphs. Plan is to treat paragraph 11's formatting as the
+"body paragraph template" — clone its run/paragraph formatting for however many
+paragraphs the LLM produces, rather than assuming a fixed count.
+
+Quirk to tolerate, not fix: this file is a Google Docs export, so margins are
+non-round twip values and bottom margin is 0. `python-docx` needs to read/write
+around this without choking — flagged now so it doesn't surprise us later.
+
 **Definition of Done**
-- [ ] Template structure inspected and documented (styles, placeholder strategy)
+- [x] Template structure inspected and documented (styles, placeholder strategy) — see table above
 - [ ] `python-docx`-based filler that only touches body paragraphs, preserves header/footer/fonts/margins/signature
 - [ ] LLM generates body content from resume + JD + company info
 - [ ] Output saved locally, then uploaded to Drive under `Jobs/{year}/{month}/{date}/{Company}_{Role}/`
