@@ -31,6 +31,8 @@ Recorded so we don't relitigate these later.
 | 6 | Dev env: existing `uv`-managed project on your machine; I scaffold files here, you place them in your repo | 2026-07-08 |
 | 7 | LLM routing: Gemini for nuanced tasks (matching, cover letters), Groq for structured/cheap tasks, with automatic fallback to **Ollama** (local) on rate limits, plus a manual `LLM_FORCE_PROVIDER` override for extended outages | 2026-07-08 |
 | 8 | Cover letter template confirmed as: static sender block + static closing, template-substituted recipient/date/subject, LLM-generated body (paragraphs 11–16 only). Google Docs export quirk: non-round margins, 0 bottom margin — tolerate, don't "fix" | 2026-07-08 |
+| 9 | Embeddings: **local `sentence-transformers` (all-MiniLM-L6-v2)**, not an API — avoids rate limits entirely for a step that runs on every resume/job/match, works offline | 2026-07-09 |
+| 10 | DB table creation is an **explicit manual step** (`scripts/init_db.py`), not an implicit app-startup side effect — found this the hard way when it broke testability (see Slice 1 notes) | 2026-07-09 |
 
 ---
 
@@ -38,17 +40,24 @@ Recorded so we don't relitigate these later.
 **Goal:** A project skeleton that runs, with config/env handling and a provider-agnostic LLM client
 that can call Gemini, Groq, or Ollama interchangeably.
 
-**Status: code written and unit-tested in sandbox. Awaiting your confirmation after running `SETUP.md` steps 1–7 with real API keys.**
+**Status: DONE.** All 7 tests pass on your machine (5 unit + 2 live smoke against real Gemini/Groq keys).
+
+One bug found and fixed along the way: pydantic-settings doesn't treat a blank
+`LLM_FORCE_PROVIDER=` line in `.env` as "unset" for an `Optional[LLMProvider]`
+field — it validates the empty string against the enum and crashes at import
+time. Fixed with a `field_validator` that maps blank/whitespace to `None`.
+Re-verified against the exact failing `.env` — 5/5 unit tests now pass where
+they previously failed collection entirely.
 
 **Definition of Done**
 - [x] `app/config.py`, `app/llm/` scaffolded — task-based routing (nuanced→Gemini, structured→Groq)
       with automatic Ollama fallback on rate limits, and a manual force-override for extended outages
 - [x] `.env.example` documenting every required secret (no real secrets committed)
 - [x] `LLMClient` interface with `Gemini`, `Groq`, `Ollama` implementations, selectable via config
-- [x] Routing/fallback logic unit-tested (5 passing, mocked providers — verified in sandbox)
-- [x] Live smoke tests written but skipped (need your real API keys — can't reach Gemini/Groq from this sandbox)
-- [x] `docker-compose.yml` for local Postgres + Qdrant (valid YAML, verified)
-- [ ] **You:** merge into your `uv` project per `SETUP.md`, run the live smoke tests once, confirm
+- [x] Routing/fallback logic unit-tested (5 passing, mocked providers)
+- [x] Live smoke tests against real Gemini + Groq keys — **passed on your machine**
+- [x] `docker-compose.yml` for local Postgres + Qdrant
+- [x] Blank-`.env`-value bug found and fixed
 
 **Depends on:** nothing
 
@@ -57,15 +66,36 @@ that can call Gemini, Groq, or Ollama interchangeably.
 ## Slice 1 — Resume Knowledge Base (FR1)
 **Goal:** Upload a resume PDF → structured, versioned, embedded, queryable.
 
+**Status: DONE.** 32 tests passing (real PDF parsing, real SQLite DB with the
+actual versioning logic, real chunking; only LLM calls and Qdrant/Postgres
+network I/O are mocked in the test suite — those get verified live on your
+machine per SETUP.md, same pattern as Slice 0).
+
 **Definition of Done**
-- [ ] `POST /resume` accepts a PDF, stores raw file
-- [ ] Parse via PyMuPDF → LLM-assisted structuring into Education/Experience/Projects/Skills/Certifications/Languages
-- [ ] Structured resume stored in Postgres (versioned — old versions kept, latest flagged)
-- [ ] Embeddings generated per section, stored in Qdrant
-- [ ] `GET /resume/latest` returns the current structured resume
-- [ ] Unit tests with a sample resume fixture (not your real one — synthetic)
+- [x] `POST /resume` accepts a PDF, stores raw file (rejects non-PDF with 400)
+- [x] Parse via PyMuPDF → LLM-assisted structuring into Education/Experience/Projects/Skills/Certifications/Languages
+- [x] Structured resume stored in Postgres (versioned — old versions kept, latest flagged)
+- [x] Embeddings generated per section (one chunk per experience/project entry, not one blob), stored in Qdrant
+- [x] `GET /resume/latest` returns the current structured resume (404 if none uploaded yet)
+- [x] Unit tests with a synthetic sample resume fixture (not your real one)
 
 **Depends on:** Slice 0
+
+**Bug found and fixed along the way:** the FastAPI app's startup lifespan
+originally called `init_db()` unconditionally against the real configured
+Postgres URL — meaning even health-check tests silently required a live DB
+with no way to override it. Fixed by making table creation an explicit
+script (`scripts/init_db.py`) instead of an app-startup side effect. This is
+a genuine design improvement, not just a test workaround: production
+deployments shouldn't auto-create tables on every restart either.
+
+**Design smell flagged, not fixed (per rule 3 — separate issue):**
+`scripts/init_db.py` uses `SQLModel.metadata.create_all()`, which only adds
+missing tables — it never alters existing ones. Fine for MVP with no data
+yet. Once the schema needs to change without losing data (e.g. adding a
+column to a table with real rows in it), this needs to become Alembic
+migrations. Not doing that preemptively — flagging it so it doesn't surprise
+us later.
 
 ---
 

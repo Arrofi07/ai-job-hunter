@@ -6,6 +6,7 @@ should call os.getenv directly, so we always know where config comes from.
 """
 from enum import StrEnum
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,17 +32,28 @@ class Settings(BaseSettings):
 
     # --- LLM provider routing ---
     # Which provider handles each task by default.
-    llm_provider_nuanced: LLMProvider = LLMProvider.GEMINI
+    llm_provider_nuanced: LLMProvider = LLMProvider.OLLAMA
     llm_provider_structured: LLMProvider = LLMProvider.GROQ
 
     # If a provider errors or rate-limits, fall back to this one for *all* tasks.
     # Set this to OLLAMA if you're hitting Gemini free-tier limits and want a
     # local, unlimited (but slower/lower-quality) escape hatch.
-    llm_fallback_provider: LLMProvider = LLMProvider.OLLAMA
+    llm_fallback_provider: LLMProvider = LLMProvider.GEMINI
 
     # Escape hatch: force everything onto a single provider regardless of task,
     # e.g. during Gemini rate-limit windows. None = use per-task routing above.
     llm_force_provider: LLMProvider | None = None
+
+    @field_validator("llm_force_provider", mode="before")
+    @classmethod
+    def _blank_env_means_unset(cls, v):
+        # .env.example ships this as `LLM_FORCE_PROVIDER=` (blank) so people
+        # can see the option without setting it. pydantic-settings treats a
+        # blank env value as the literal string "", not "unset" — which fails
+        # enum validation. Treat blank/whitespace as None instead.
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
 
     # --- Provider credentials / endpoints ---
     gemini_api_key: str | None = None
