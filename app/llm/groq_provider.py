@@ -13,7 +13,7 @@ class GroqProvider(LLMProviderClient):
         self._model = settings.groq_model
 
     def generate(self, prompt: str, system: str | None = None) -> str:
-        from groq import APIStatusError
+        from groq import APIConnectionError, APIStatusError
 
         messages = []
         if system:
@@ -25,8 +25,15 @@ class GroqProvider(LLMProviderClient):
                 model=self._model,
                 messages=messages,
             )
+        except APIConnectionError as e:
+            # Covers APITimeoutError too (it subclasses APIConnectionError).
+            # A network-level failure means Groq isn't reachable right now —
+            # same "try the fallback provider" outcome as a rate limit.
+            raise LLMRateLimitError(str(e)) from e
         except APIStatusError as e:
-            if e.status_code == 429:
+            # 429 = rate limit. 5xx (e.g. InternalServerError) = Groq's side
+            # is down — treat both as fallback-worthy, not just literal 429.
+            if e.status_code == 429 or e.status_code >= 500:
                 raise LLMRateLimitError(str(e)) from e
             raise LLMError(str(e)) from e
 

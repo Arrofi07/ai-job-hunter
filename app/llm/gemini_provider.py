@@ -24,8 +24,13 @@ class GeminiProvider(LLMProviderClient):
                 contents=prompt,
                 config=config,
             )
-        except genai_errors.ClientError as e:
-            if getattr(e, "code", None) == 429:
+        except genai_errors.APIError as e:
+            # 429 = quota/rate limit. 5xx (ServerError) = Google's side is
+            # down/overloaded ("high demand", 503 UNAVAILABLE, etc.) — from
+            # the caller's perspective both mean "Gemini isn't answering
+            # right now, try the fallback provider," so both route through
+            # LLMRateLimitError rather than only the literal 429 case.
+            if e.code == 429 or e.code >= 500:
                 raise LLMRateLimitError(str(e)) from e
             raise LLMError(str(e)) from e
 
