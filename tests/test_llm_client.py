@@ -90,7 +90,7 @@ def test_does_not_fall_back_on_non_rate_limit_errors(monkeypatch):
         client.generate(LLMTask.NUANCED, "prompt")
 
 
-#@pytest.mark.skipif(reason="Requires real API keys in .env — run manually, not in CI")
+#@pytest.mark.skip(reason="Requires real API keys in .env — run manually, not in CI")
 def test_live_smoke_gemini():
     from app.llm.gemini_provider import GeminiProvider
 
@@ -99,7 +99,7 @@ def test_live_smoke_gemini():
     assert result.strip()
 
 
-#@pytest.mark.skipif(reason="Requires real API keys in .env — run manually, not in CI")
+#@pytest.mark.skip(reason="Requires real API keys in .env — run manually, not in CI")
 def test_live_smoke_groq():
     from app.llm.groq_provider import GroqProvider
 
