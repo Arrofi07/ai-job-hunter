@@ -97,5 +97,14 @@ class Settings(BaseSettings):
     # Not committed — this is a local secret, same category as an API key.
     gdrive_token_path: str = ".gdrive_token.json"
 
+    # --- Job search (Slice 3) ---
+    # Adzuna: primary broad-search source. Greenhouse/Lever's public APIs are
+    # per-company only (no cross-company search — see decisions log #20),
+    # so they're not usable for "search broadly, no company list" and
+    # aren't wired in yet.
+    adzuna_app_id: str | None = None
+    adzuna_app_key: str | None = None
+    adzuna_country: str = "de"  # Germany — matches the person's target location
+
 
 settings = Settings()
