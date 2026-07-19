@@ -5,12 +5,13 @@ scripts/gdrive_oauth_setup.py. That script is the one-time interactive step
 afterward, refreshing the access token from the stored refresh token as
 needed, with no user interaction.
 
-Scope: full `drive` access, not the narrower `drive.file`. FR6 requires
-reading files the person already has in their Drive (their existing resume,
-their cover letter template) — `drive.file` only sees files the app itself
-created, which wouldn't satisfy that requirement. This is a real, visible
-tradeoff, not an oversight: broader scope for a personal single-user tool
-matches the actual read requirements.
+Scope: Google's own docs for the Drive MCP server specify exactly
+`drive.readonly` + `drive.file` — not the broader `drive` scope. This combo
+actually covers FR6's needs correctly: `drive.readonly` reads files that
+already exist in the person's Drive (their resume, their cover letter
+template), `drive.file` creates/manages files this app creates (job
+folders, generated cover letters, reports). It's more correctly scoped than
+a blanket `drive` grant, not less capable for what we actually need.
 """
 import json
 import os
@@ -20,7 +21,10 @@ from google.oauth2.credentials import Credentials
 
 from app.config import settings
 
-DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+DRIVE_SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive.file",
+]
 
 
 class GDriveAuthError(Exception):

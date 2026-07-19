@@ -6,16 +6,18 @@ Usage:
     uv run python -m scripts.mcp_smoke_test
     uv run python -m scripts.mcp_smoke_test --github-owner octocat --github-repo Hello-World
 
-Note on the GitHub tool call: I confirmed the server URL, transport, and
-auth headers against GitHub's official docs, but not the *exact* tool name
-for "get repository info" — GitHub doesn't publish a full tool-name
-reference the way Google does for Drive. This script lists all available
-tools first specifically so that if the guessed tool name is wrong, you get
-the real tool list to report back rather than just a bare failure.
+Note on the GitHub tool: confirmed against a real call to list_tools() (see
+decisions log) — there's no dedicated "get repository metadata" tool in the
+repos toolset at all, so FR9's file-based analysis (languages, frameworks,
+CI/CD, Docker, tests) will work directly off `get_file_contents` /
+`search_code` rather than a single repo-metadata call. This smoke test uses
+get_file_contents on README.md, since that's the same capability FR9 will
+actually lean on.
 """
 import argparse
 import asyncio
 import json
+import traceback
 
 from app.mcp.client import extract_text
 from app.mcp.gdrive_client import ensure_root_folder_structure, gdrive_mcp_session
@@ -23,13 +25,23 @@ from app.mcp.github_client import call_github_tool, github_mcp_session
 
 # A well-known public repo, used only if you don't pass your own — this way
 # the script runs without needing any of your own repos configured first.
+# (octocat/Hello-World, an equally common choice, does NOT have a README.md
+# — its readme file is literally named "README" with no extension, confirmed
+# by checking raw.githubusercontent.com directly. Spoon-Knife does.)
 DEFAULT_OWNER = "octocat"
-DEFAULT_REPO = "Hello-World"
+DEFAULT_REPO = "Spoon-Knife"
 
-# Tool name guesses, tried in order, for "get repository metadata" — the
-# first one that exists and succeeds is used. If none work, the full tool
-# list (printed regardless) tells us the real name to hardcode instead.
-REPO_INFO_TOOL_CANDIDATES = ["get_repository", "get_repo", "repository_get"]
+
+def _print_full_error(e: BaseException) -> None:
+    """anyio/asyncio TaskGroups wrap the real failure in an ExceptionGroup,
+    which prints as a near-useless 'unhandled errors in a TaskGroup' unless
+    you walk into .exceptions yourself. This unwraps it so the actual root
+    cause (an HTTP error, a auth failure, whatever it is) is visible."""
+    if isinstance(e, BaseExceptionGroup):
+        for sub in e.exceptions:
+            _print_full_error(sub)
+    else:
+        traceback.print_exception(type(e), e, e.__traceback__)
 
 
 async def test_github(owner: str, repo: str) -> None:
@@ -41,23 +53,12 @@ async def test_github(owner: str, repo: str) -> None:
         for name in tool_names:
             print(f"  - {name}")
 
-        for candidate in REPO_INFO_TOOL_CANDIDATES:
-            if candidate not in tool_names:
-                continue
-            try:
-                result = await call_github_tool(
-                    session, candidate, {"owner": owner, "repo": repo}
-                )
-                print(f"\n'{candidate}' succeeded for {owner}/{repo}:")
-                print(extract_text(result)[:1000])
-                return
-            except Exception as e:  # noqa: BLE001 - smoke test, want to see any failure
-                print(f"\n'{candidate}' exists but failed: {e}")
-
-        print(
-            "\nNone of the guessed repo-info tool names worked. See the tool "
-            "list above for the real name, then tell me which one it is."
+        result = await call_github_tool(
+            session, "get_file_contents",
+            {"owner": owner, "repo": repo, "path": "README.md"},
         )
+        print(f"\nget_file_contents succeeded for {owner}/{repo}/README.md:")
+        print(extract_text(result)[:1000])
 
 
 async def test_gdrive() -> None:
@@ -75,13 +76,15 @@ async def test_gdrive() -> None:
 async def main(owner: str, repo: str) -> None:
     try:
         await test_github(owner, repo)
-    except Exception as e:  # noqa: BLE001 - smoke test, surface everything
-        print(f"\nGitHub MCP FAILED: {e}")
+    except BaseException as e:  # noqa: BLE001 - smoke test, surface everything
+        print("\nGitHub MCP FAILED:")
+        _print_full_error(e)
 
     try:
         await test_gdrive()
-    except Exception as e:  # noqa: BLE001
-        print(f"\nGoogle Drive MCP FAILED: {e}")
+    except BaseException as e:  # noqa: BLE001
+        print("\nGoogle Drive MCP FAILED:")
+        _print_full_error(e)
 
 
 if __name__ == "__main__":
