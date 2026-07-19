@@ -45,3 +45,7 @@ def test_init_db_creates_tables_in_a_fresh_process():
             f"resume_versions table was not created. Tables found: {tables}. "
             f"init_db stdout: {result.stdout}"
         )
+        assert "job_postings" in tables, (
+            f"job_postings table was not created. Tables found: {tables}. "
+            f"init_db stdout: {result.stdout}"
+        )
