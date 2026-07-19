@@ -32,6 +32,7 @@ def init_db() -> None:
     exactly the gap that caused create_all() to silently create zero
     tables the first time this ran against a real database.
     """
+    import app.jobs.models  # noqa: F401
     import app.resume.models  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
